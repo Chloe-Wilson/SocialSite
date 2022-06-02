@@ -1,10 +1,27 @@
 import os
 import sqlite3
+import random
+import string
 
 from flask import Flask, request, render_template, redirect, url_for, make_response
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = './Static'
+
+
+def checkCred():
+    conn = sqlite3.connect('login')
+    crsr = conn.cursor()
+    crsr.execute(
+        'SELECT 1 FROM login WHERE name = "' + request.cookies.get('user', "") + '" AND key = "' + request.cookies.get(
+            'key', "") + '";')
+    data = crsr.fetchall()
+    conn.commit()
+    conn.close()
+    if data:
+        return 1
+    else:
+        return 0
 
 
 @app.route("/", methods=['GET', 'POST'])
@@ -31,15 +48,23 @@ def login():
         if data:
             resp = make_response(redirect(url_for('home')))
             resp.set_cookie('user', request.form.get('Username'))
+
+            conn = sqlite3.connect('login')
+            crsr = conn.cursor()
+            key = (''.join(random.choice(string.ascii_letters) for i in range(50)))
+            crsr.execute('UPDATE login SET key ="' + key + '" WHERE name = "' + request.form.get('Username') + '";')
+            resp.set_cookie('key', key)
+            conn.commit()
+            conn.close()
+
             return resp
         else:
             return '<p>Username or Password Wrong</p>' + render_template('login.html')
     else:
-        account = request.cookies.get('user', "")
         conn = sqlite3.connect('login')
         crsr = conn.cursor()
         crsr.execute(
-            'SELECT 1 FROM login WHERE name = "' + account + '";')
+            'SELECT 1 FROM login WHERE name = "' + request.cookies.get('user', "") + '" AND key = "' + request.cookies.get('key', "") + '";')
         data = crsr.fetchall()
         conn.commit()
         conn.close()
@@ -66,8 +91,9 @@ def signup():
             conn.close()
             return '<p>Passwords not the same</p>' + render_template('signup.html')
         else:
+            key = (''.join(random.choice(string.ascii_letters) for i in range(50)))
             crsr.execute('INSERT INTO login VALUES ("' + request.form.get('Username') + '", "' + request.form.get(
-                'Password') + '")')
+                'Password') + '", "' + key + '")')
             conn.commit()
             conn.close()
 
@@ -80,6 +106,7 @@ def signup():
 
             resp = make_response(redirect(url_for('home')))
             resp.set_cookie('user', request.form.get('Username'))
+            resp.set_cookie('key', key)
             return resp
 
     return render_template('signup.html')
@@ -87,6 +114,11 @@ def signup():
 
 @app.route("/upload", methods=['GET', 'POST'])
 def upload():
+    if not checkCred():
+        resp = make_response(redirect(url_for('front')))
+        resp.set_cookie('user', '')
+        resp.set_cookie('key', '')
+        return resp
     if request.method == 'POST':
         f = request.files['file']
         if f:
@@ -108,10 +140,16 @@ def upload():
 
 @app.route("/Home/", methods=['GET', 'POST'])
 def home():
+    if not checkCred():
+        resp = make_response(redirect(url_for('front')))
+        resp.set_cookie('user', '')
+        resp.set_cookie('key', '')
+        return resp
     if request.method == 'POST':
         if request.form.get('logout') == 'logout':
             resp = make_response(redirect(url_for('front')))
             resp.set_cookie('user', '')
+            resp.set_cookie('key', '')
             return resp
         if request.form.get('upload') == 'upload':
             return redirect(url_for('upload'))
@@ -133,6 +171,8 @@ def home():
         req += '") ORDER BY date DESC;'
         crsr.execute(req)
         data = crsr.fetchall()
+        conn.commit()
+        conn.close()
 
         resp = render_template('home.html')
         for post in data:
@@ -142,6 +182,11 @@ def home():
 
 @app.route('/Account/<name>', methods=['GET', 'POST'])
 def account(name):
+    if not checkCred():
+        resp = make_response(redirect(url_for('front')))
+        resp.set_cookie('user', '')
+        resp.set_cookie('key', '')
+        return resp
     if request.method == 'POST':
         if request.form.get("Home") == 'Home':
             return redirect(url_for('home'))
@@ -176,6 +221,8 @@ def account(name):
         req = 'SELECT * FROM posts WHERE user = "' + name + '" ORDER BY date DESC;'
         crsr.execute(req)
         data = crsr.fetchall()
+        conn.commit()
+        conn.close()
         for post in data:
             resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1])
         return resp
@@ -184,7 +231,7 @@ def account(name):
 # crsr = conn.cursor()
 # crsr.execute('DROP TABLE IF EXISTS login;')
 # crsr.execute('DROP TABLE IF EXISTS posts;')
-# crsr.execute('CREATE TABLE login (name varchar(255), pass varchar(255));')
+# crsr.execute('CREATE TABLE login (name varchar(255), pass varchar(255), key varchar(255));')
 # crsr.execute(
 #     'CREATE TABLE posts (id varchar(255), cap varchar(255), user varchar(255), date TIMESTAMP NOT NULL DEFAULT '
 #     'CURRENT_TIMESTAMP);')
