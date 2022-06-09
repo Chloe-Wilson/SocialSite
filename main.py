@@ -1,9 +1,14 @@
 import os
-import sqlite3
 import random
+import sqlite3
 import string
+import json
 
-from flask import Flask, request, render_template, redirect, url_for, make_response
+import numpy as np
+from flask import Flask, Response, request, render_template, redirect, url_for, make_response
+from Levenshtein import distance
+
+reserved = ['MrPlane']
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = './Static'
@@ -31,7 +36,7 @@ def front():
             return redirect(url_for('login'))
         elif request.form.get('Sign Up') == 'signup':
             return redirect(url_for('signup'))
-    return render_template('front.html')
+    return render_template('head.html') + render_template('front.html')
 
 
 @app.route("/login", methods=['GET', 'POST'])
@@ -59,24 +64,39 @@ def login():
 
             return resp
         else:
-            return '<p>Username or Password Wrong</p>' + render_template('login.html')
+            return render_template('head.html') + '<p>Username or Password Wrong</p>' + render_template('login.html')
     else:
         conn = sqlite3.connect('login')
         crsr = conn.cursor()
         crsr.execute(
-            'SELECT 1 FROM login WHERE name = "' + request.cookies.get('user', "") + '" AND key = "' + request.cookies.get('key', "") + '";')
+            'SELECT 1 FROM login WHERE name = "' + request.cookies.get('user',
+                                                                       "") + '" AND key = "' + request.cookies.get(
+                'key', "") + '";')
         data = crsr.fetchall()
         conn.commit()
         conn.close()
         if data:
             return redirect(url_for('home'))
         else:
-            return render_template('login.html')
+            return render_template('head.html') + render_template('login.html')
 
 
 @app.route("/signup", methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
+        if request.form.get('Username') in reserved:
+            return render_template(
+                'head.html') + '<p>Name reserved. Try searching once signed up</p>' + render_template('signup.html')
+        if not all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789' for c in
+                   request.form.get('Username')):
+            return render_template(
+                'head.html') + '<p>Invalid Characters in Username. Valid(A:Z, a:z, 0:9)</p>' + render_template(
+                'signup.html')
+        if not all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_!@#$%^&*' for c in
+                   request.form.get('Password')):
+            return render_template(
+                'head.html') + '<p>Invalid Characters in Password. Valid(A:Z, a:z, 0:9, ._-!@#$%^&*)</p>' + render_template(
+                'signup.html')
         conn = sqlite3.connect('login')
         crsr = conn.cursor()
         crsr.execute('SELECT 1 FROM login WHERE name = "' + request.form.get('Username') + '";')
@@ -85,11 +105,11 @@ def signup():
         if data:
             conn.commit()
             conn.close()
-            return '<p>Username Taken</p>' + render_template('signup.html')
+            return render_template('head.html') + '<p>Username Taken</p>' + render_template('signup.html')
         elif request.form.get('Password') != request.form.get('Repeat Password'):
             conn.commit()
             conn.close()
-            return '<p>Passwords not the same</p>' + render_template('signup.html')
+            return render_template('head.html') + '<p>Passwords not the same</p>' + render_template('signup.html')
         else:
             key = (''.join(random.choice(string.ascii_letters) for i in range(50)))
             crsr.execute('INSERT INTO login VALUES ("' + request.form.get('Username') + '", "' + request.form.get(
@@ -109,7 +129,7 @@ def signup():
             resp.set_cookie('key', key)
             return resp
 
-    return render_template('signup.html')
+    return render_template('head.html') + render_template('signup.html')
 
 
 @app.route("/upload", methods=['GET', 'POST'])
@@ -133,9 +153,23 @@ def upload():
 
             return redirect(url_for('home'))
         else:
-            return '<p>No File</p>' + render_template('upload.html')
+            return render_template('head.html') + '<p>No File</p>' + render_template('upload.html')
     else:
-        return render_template('upload.html')
+        return render_template('head.html') + render_template('upload.html')
+
+
+@app.route('/_autocomplete', methods=['GET'])
+def autocomplete():
+    conn = sqlite3.connect('login')
+    crsr = conn.cursor()
+    crsr.execute('SELECT name FROM login')
+    usernames = crsr.fetchall()
+    conn.commit()
+    conn.close()
+    users = []
+    for name in usernames:
+        users.append(name[0])
+    return Response(json.dumps(users), mimetype='application/json')
 
 
 @app.route("/Home/", methods=['GET', 'POST'])
@@ -154,7 +188,23 @@ def home():
         if request.form.get('upload') == 'upload':
             return redirect(url_for('upload'))
         if request.form.get('search') == 'search':
-            return redirect(url_for('account', name=request.form.get('searchBox')))
+            if request.form.get('searchBox') in reserved:
+                return redirect(url_for(request.form.get('searchBox')))
+            else:
+                conn = sqlite3.connect('login')
+                crsr = conn.cursor()
+                crsr.execute('SELECT name FROM login')
+                users = crsr.fetchall()
+                conn.commit()
+                conn.close()
+                minU = 0
+                userC = request.form.get('searchBox')
+                minV = distance(users[0][0], userC)
+                for i in range(len(users)):
+                    if distance(users[i][0], userC) < minV:
+                        minV = distance(users[i][0], userC)
+                        minU = i
+                return redirect(url_for('account', name=users[minU][0]))
     else:
         conn = sqlite3.connect('Accounts/' + request.cookies.get('user', ""))
         crsr = conn.cursor()
@@ -172,11 +222,17 @@ def home():
         crsr.execute(req)
         data = crsr.fetchall()
         conn.commit()
+        crsr.execute('SELECT name FROM login')
+        usernames = crsr.fetchall()
         conn.close()
-
-        resp = render_template('home.html')
+        resp = render_template('head.html') + '<body class="background">' + render_template('home.html')
+        resp += '<datalist id="names">'
+        for name in usernames:
+            resp += '<option value="' + name[0] + '">'
+        resp += '</datalist>'
         for post in data:
-            resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1])
+            resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1], likes=post[3])
+        resp += '</body>'
         return resp
 
 
@@ -211,10 +267,11 @@ def account(name):
         following = crsr.fetchall()
         conn.commit()
         conn.close()
+        resp = render_template('head.html') + '<body class="background">'
         if following:
-            resp = render_template('follow.html', button="Unfollow", name=name)
+            resp += render_template('follow.html', button="Unfollow", name=name)
         else:
-            resp = render_template('follow.html', button="Follow", name=name)
+            resp += render_template('follow.html', button="Follow", name=name)
 
         conn = sqlite3.connect('login')
         crsr = conn.cursor()
@@ -224,8 +281,129 @@ def account(name):
         conn.commit()
         conn.close()
         for post in data:
-            resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1])
+            resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1], likes=post[3])
+        resp += '</body>'
         return resp
+
+
+@app.route('/delete', methods=['POST'])
+def delete():
+    conn = sqlite3.connect('login')
+    crsr = conn.cursor()
+    if request.form.get('delete'):
+        crsr.execute('DELETE FROM posts WHERE id="' + request.form.get('delete').split('/')[2] + '" and user="' + request.cookies.get('user', '') + '";')
+    elif request.form.get('like'):
+        crsr.execute('UPDATE posts SET likes=likes+1 WHERE id="' + request.form.get('like').split('/')[2] + '";')
+    conn.commit()
+    conn.close()
+    return redirect(url_for('home'))
+
+
+def drawPlane(board, plane, msg=""):
+    if not msg == "Previous Shot":
+        x = {1: 0, 2: 1, 3: 0, 4: -1}
+        y = {1: -1, 2: 0, 3: 1, 4: 0}
+        direction = random.randint(1, 4)
+        stuck = 0
+        while stuck < 4:
+            stuck += 1
+            xm = min(max(plane[0] + x.get(direction), 0), len(board) - 1)
+            ym = min(max(plane[1] + y.get(direction), 0), len(board[0]) - 1)
+            if not board[xm][ym]:
+                plane = xm, ym
+                np.savetxt('tmp/plane_pos_' + request.cookies.get('user', ""), plane, delimiter=',', fmt='%d')
+                break
+            direction += 1
+            if direction > 4:
+                direction = 1
+    if msg != "Hit":
+        resp = '<form method="post" action="/MrPlane">'
+    else:
+        resp = '<form>'
+    for j in range(len(board[0])):
+        for i in range(len(board)):
+            if board[i][j]:
+                resp += '<input type="submit" value="' + str(i) + ',' + str(
+                    j) + '" name="Enter" style="color:red; background-color:red; width:' + str(
+                    100 / len(board)) + '%; height:' + str(100 / len(board[0])) + '%">'
+            else:
+                resp += '<input type="submit" value="' + str(i) + ',' + str(
+                    j) + '" name="Enter" style="color:white; width:' + str(100 / len(board)) + '%; height:' + str(
+                    100 / len(board[0])) + '%">'
+    resp += '</form><p>' + msg + '</p>'
+    return resp
+
+
+@app.route('/MrPlane', methods=['GET', 'POST'])
+def MrPlane():
+    if request.method == 'POST':
+        if request.form.get('Enter') == 'Enter':
+            if int(request.form.get('Rows')) > 0 and int(request.form.get('Columns')) > 0:
+                board = np.zeros((min(int(request.form.get('Rows')), 50), min(int(request.form.get('Columns')), 50)),
+                                 dtype=int)
+                planePos = [random.randint(0, len(board) - 1), random.randint(0, len(board[0]) - 1)]
+                np.savetxt('tmp/plane_board_' + request.cookies.get('user', ""), board, delimiter=',', fmt='%d')
+                return drawPlane(board, planePos)
+        elif request.form.get('Enter') == 'Home':
+            try:
+                os.remove('tmp/plane_board_' + request.cookies.get('user', ""))
+                os.remove('tmp/plane_pos_' + request.cookies.get('user', ""))
+            except:
+                pass
+            return redirect(url_for('home'))
+        elif request.form.get('Enter'):
+            x, y = request.form.get('Enter').split(',')
+            x = int(x)
+            y = int(y)
+            board = np.genfromtxt('tmp/plane_board_' + request.cookies.get('user', ""), delimiter=',', dtype=int,
+                                  encoding='UTF-8')
+            planePos = np.genfromtxt('tmp/plane_pos_' + request.cookies.get('user', ""), delimiter=',', dtype=int,
+                                     encoding='UTF-8')
+            if board[x][y]:
+                return drawPlane(board, planePos, "Previous Shot")
+            board[x][y] = 1
+            np.savetxt('tmp/plane_board_' + request.cookies.get('user', ""), board, delimiter=',', fmt='%d')
+            if x == planePos[0] and y == planePos[1]:
+                return drawPlane(board, planePos, "Hit")
+            else:
+                if x == planePos[0]:
+                    if y > planePos[1]:
+                        return drawPlane(board, planePos, "Dew North")
+                    else:
+                        return drawPlane(board, planePos, "Dew South")
+                elif y == planePos[1]:
+                    if x > planePos[0]:
+                        return drawPlane(board, planePos, "Dew West")
+                    else:
+                        return drawPlane(board, planePos, "Dew East")
+                else:
+                    lx = planePos[0] - x
+                    ly = planePos[1] - y
+                    if abs(lx) > abs(ly):
+                        if lx > 0:
+                            return drawPlane(board, planePos, "Eastish")
+                        else:
+                            return drawPlane(board, planePos, "Westish")
+                    elif abs(lx) < abs(ly):
+                        if ly > 0:
+                            return drawPlane(board, planePos, "Southish")
+                        else:
+                            return drawPlane(board, planePos, "Nothish")
+                    else:
+                        if lx > 0:
+                            if ly > 0:
+                                return drawPlane(board, planePos, "South East")
+                            else:
+                                return drawPlane(board, planePos, "North East")
+                        else:
+                            if ly > 0:
+                                return drawPlane(board, planePos, "South West")
+                            else:
+                                return drawPlane(board, planePos, "North West")
+
+
+    else:
+        return render_template('planeSetup.html')
 
 # conn = sqlite3.connect('login')
 # crsr = conn.cursor()
@@ -233,15 +411,8 @@ def account(name):
 # crsr.execute('DROP TABLE IF EXISTS posts;')
 # crsr.execute('CREATE TABLE login (name varchar(255), pass varchar(255), key varchar(255));')
 # crsr.execute(
-#     'CREATE TABLE posts (id varchar(255), cap varchar(255), user varchar(255), date TIMESTAMP NOT NULL DEFAULT '
+#     'CREATE TABLE posts (id varchar(255), cap varchar(255), user varchar(255), likes int DEFAULT 0, date TIMESTAMP NOT NULL DEFAULT '
 #     'CURRENT_TIMESTAMP);')
 # conn.commit()
 # conn.close()
 
-# conn = sqlite3.connect('login')
-# crsr = conn.cursor()
-# crsr.execute('INSERT INTO posts (id, cap, user) VALUES ("' + str(0) + '.png", "AA", "Billy");')
-# crsr.execute('SELECT * FROM posts WHERE user IN ("Billy");')
-# print(crsr.fetchall())
-# conn.commit()
-# conn.close()

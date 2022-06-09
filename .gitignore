@@ -1,4 +1,5 @@
-.vercel
 Accounts/*
-Static/*
+Static/*.*
 login
+tmp/*
+.vercel

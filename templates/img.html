@@ -1,2 +1,9 @@
-<img src="{{img}}" width="50%">
-<p>{{caption}}</p>
+<div class="image">
+    <p>{{likes}} Likes</p>
+    <img src="{{img}}" class="image">
+    <form method="post" action="/delete" class="cap">
+        <input type="submit" value="{{img}}" name="like" class="like">
+        <p>{{caption}}</p>
+        <input type="submit" value="{{img}}" name="delete" class="trash">
+    </form>
+</div>
