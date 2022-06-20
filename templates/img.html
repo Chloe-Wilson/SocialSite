@@ -1,9 +1,13 @@
 <div class="image">
-    <p>{{likes}} Likes</p>
+    <div class="pichead">
+        <p>{{name}}</p>
+        <p>{{likes}} Likes</p>
+    </div>
     <img src="{{img}}" class="image">
     <form method="post" action="/delete" class="cap">
         <input type="submit" value="{{img}}" name="like" class="like">
         <p>{{caption}}</p>
-        <input type="submit" value="{{img}}" name="delete" class="trash">
+        <input type="submit" value="{{img}}" name="delete" class="trash" style="visibility: {{show}};">
+        <input type="hidden" name="page" value="{{page}}">
     </form>
 </div>

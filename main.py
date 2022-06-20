@@ -11,7 +11,7 @@ from Levenshtein import distance
 reserved = ['MrPlane']
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = './Static'
+app.config['UPLOAD_FOLDER'] = './static'
 
 
 def checkCred():
@@ -144,12 +144,12 @@ def upload():
         if f:
             conn = sqlite3.connect('login')
             crsr = conn.cursor()
-            id = len(os.listdir('./Static/'))
+            id = len(os.listdir('static/'))
             crsr.execute('INSERT INTO posts (id, cap, user) VALUES ("' + str(id) + '.png", "' + request.form.get(
                 'Caption') + '", "' + request.cookies.get('user', "") + '");')
             conn.commit()
             conn.close()
-            f.save('Static/' + str(id) + '.png')
+            f.save('static/' + str(id) + '.png')
 
             return redirect(url_for('home'))
         else:
@@ -225,13 +225,16 @@ def home():
         crsr.execute('SELECT name FROM login')
         usernames = crsr.fetchall()
         conn.close()
-        resp = render_template('head.html') + '<body class="background">' + render_template('home.html')
+        resp = render_template('head.html') + '<body class="background">' + render_template('nameplate.html', name="Dashboard") + render_template('home.html')
         resp += '<datalist id="names">'
         for name in usernames:
             resp += '<option value="' + name[0] + '">'
         resp += '</datalist>'
         for post in data:
-            resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1], likes=post[3])
+            if post[2] == request.cookies.get('user', ''):
+                resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1], name=post[2], likes=post[3], page="home", show="visible")
+            else:
+                resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1], name=post[2], likes=post[3], page="home", show="hidden")
         resp += '</body>'
         return resp
 
@@ -267,7 +270,7 @@ def account(name):
         following = crsr.fetchall()
         conn.commit()
         conn.close()
-        resp = render_template('head.html') + '<body class="background">'
+        resp = render_template('head.html') + '<body class="background">' + render_template('nameplate.html', name=name)
         if following:
             resp += render_template('follow.html', button="Unfollow", name=name)
         else:
@@ -281,7 +284,10 @@ def account(name):
         conn.commit()
         conn.close()
         for post in data:
-            resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1], likes=post[3])
+            if post[2] == request.cookies.get('user', ''):
+                resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1], name=post[2], likes=post[3], page=name, show="visible")
+            else:
+                resp = resp + render_template('img.html', img=url_for('static', filename=post[0]), caption=post[1], name=post[2], likes=post[3], page=name, show="hidden")
         resp += '</body>'
         return resp
 
@@ -296,7 +302,10 @@ def delete():
         crsr.execute('UPDATE posts SET likes=likes+1 WHERE id="' + request.form.get('like').split('/')[2] + '";')
     conn.commit()
     conn.close()
-    return redirect(url_for('home'))
+    if request.form.get('page') == 'home':
+        return redirect(url_for('home'))
+    else:
+        return redirect(url_for('account', name=request.form.get('page')))
 
 
 def drawPlane(board, plane, msg=""):
@@ -342,7 +351,7 @@ def MrPlane():
                 board = np.zeros((min(int(request.form.get('Rows')), 50), min(int(request.form.get('Columns')), 50)),
                                  dtype=int)
                 planePos = [random.randint(0, len(board) - 1), random.randint(0, len(board[0]) - 1)]
-                np.savetxt('tmp/plane_board_' + request.cookies.get('user', ""), board, delimiter=',', fmt='%d')
+                np.savetxt('./tmp/plane_board_' + request.cookies.get('user', ""), board, delimiter=',', fmt='%d')
                 return drawPlane(board, planePos)
         elif request.form.get('Enter') == 'Home':
             try:
